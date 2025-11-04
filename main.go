@@ -1,17 +1,34 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
+
+	"github.com/JoeVinten/chirpy/internal/database"
+	"github.com/google/uuid"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	db             *database.Queries
+	platform       string
+}
+
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -35,6 +52,11 @@ func (cfg *apiConfig) writeRequests(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
+	if cfg.platform != "dev" {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("Reset is only allowed in dev environment."))
+		return
+	}
 	cfg.fileserverHits.Store(0)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Hits reset to 0"))
@@ -64,6 +86,44 @@ func handlerChirpsValidate(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, returnVals{
 		CleanBody: profanityFilter(params.Body),
+	})
+}
+
+func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Email string `json:"email"`
+	}
+	type response struct {
+		User
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "issue decoding params", err)
+		return
+	}
+
+	if params.Email == "" {
+		respondWithError(w, http.StatusBadRequest, "no email given", nil)
+		return
+	}
+
+	user, err := cfg.db.CreateUser(r.Context(), params.Email)
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "error creating user", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, response{
+		User: User{
+			ID:        user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email:     user.Email,
+		},
 	})
 }
 
@@ -114,10 +174,25 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 }
 
 func main() {
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+
+	if dbURL == "" {
+		log.Fatal("DB_URL must be set")
+	}
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Error contecting to the db: %s", err)
+	}
+	dbQueries := database.New(db)
+	apiCfg := &apiConfig{
+		fileserverHits: atomic.Int32{},
+		db:             dbQueries,
+		platform:       os.Getenv("PLATFORM"),
+	}
+
 	const port = "8080"
 	mux := http.NewServeMux()
-
-	apiCfg := &apiConfig{}
 
 	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 
@@ -132,6 +207,8 @@ func main() {
 	})
 
 	mux.HandleFunc("POST /api/validate_chirp", handlerChirpsValidate)
+
+	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
 
 	s := &http.Server{
 		Addr:    ":" + port,
