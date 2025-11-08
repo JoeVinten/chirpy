@@ -39,35 +39,53 @@ type Chirp struct {
 	UserID    uuid.NullUUID `json:"user_id"`
 }
 
-func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileserverHits.Add(1)
-		next.ServeHTTP(w, r)
-	})
-}
+func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
 
-func (cfg *apiConfig) writeRequests(w http.ResponseWriter, r *http.Request) {
-	template := fmt.Sprintf(`<html>
-		<body>
-			<h1>Welcome, Chirpy Admin</h1>
-			<p>Chirpy has been visited %d times!</p>
-		</body>
-		</html>`, cfg.fileserverHits.Load())
-	w.Header().Add("Content-Type", "text/plain;charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(template))
+	chirpString := r.PathValue("chirpID")
 
-}
-
-func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
-	if cfg.platform != "dev" {
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("Reset is only allowed in dev environment."))
+	chirpID, err := uuid.Parse(chirpString)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to parse given chirpID", err)
 		return
 	}
-	cfg.fileserverHits.Store(0)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Hits reset to 0"))
+
+	chirp, err := cfg.db.GetChirp(r.Context(), chirpID)
+
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Unable to find chirp", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID,
+	})
+
+}
+
+func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
+	chirps, err := cfg.db.GetChirps(r.Context())
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to get chirps from db", err)
+	}
+
+	var chirpsArr []Chirp
+
+	for _, chirp := range chirps {
+		chirpsArr = append(chirpsArr, Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserID:    chirp.UserID,
+		})
+	}
+
+	respondWithJSON(w, http.StatusOK, chirpsArr)
 }
 
 func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +128,37 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 		UserID:    chirp.UserID,
 	},
 	)
+}
+
+func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg.fileserverHits.Add(1)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (cfg *apiConfig) writeRequests(w http.ResponseWriter, r *http.Request) {
+	template := fmt.Sprintf(`<html>
+		<body>
+			<h1>Welcome, Chirpy Admin</h1>
+			<p>Chirpy has been visited %d times!</p>
+		</body>
+		</html>`, cfg.fileserverHits.Load())
+	w.Header().Add("Content-Type", "text/plain;charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(template))
+
+}
+
+func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
+	if cfg.platform != "dev" {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("Reset is only allowed in dev environment."))
+		return
+	}
+	cfg.fileserverHits.Store(0)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Hits reset to 0"))
 }
 
 func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
@@ -232,6 +281,9 @@ func main() {
 	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
 
 	mux.HandleFunc("POST /api/chirps", apiCfg.handlerCreateChirp)
+	mux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
+
+	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirp)
 
 	s := &http.Server{
 		Addr:    ":" + port,
