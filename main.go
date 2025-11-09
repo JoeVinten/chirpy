@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"slices"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +20,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	db             *database.Queries
 	platform       string
+	jwtSecret      string
 }
 
 type User struct {
@@ -29,105 +28,15 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Token     string    `json:"token"`
 }
 
 type Chirp struct {
-	ID        uuid.UUID     `json:"id"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
-	Body      string        `json:"body"`
-	UserID    uuid.NullUUID `json:"user_id"`
-}
-
-func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
-
-	chirpString := r.PathValue("chirpID")
-
-	chirpID, err := uuid.Parse(chirpString)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to parse given chirpID", err)
-		return
-	}
-
-	chirp, err := cfg.db.GetChirp(r.Context(), chirpID)
-
-	if err != nil {
-		respondWithError(w, http.StatusNotFound, "Unable to find chirp", err)
-		return
-	}
-
-	respondWithJSON(w, http.StatusOK, Chirp{
-		ID:        chirp.ID,
-		CreatedAt: chirp.CreatedAt,
-		UpdatedAt: chirp.UpdatedAt,
-		Body:      chirp.Body,
-		UserID:    chirp.UserID,
-	})
-
-}
-
-func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
-	chirps, err := cfg.db.GetChirps(r.Context())
-
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to get chirps from db", err)
-	}
-
-	var chirpsArr []Chirp
-
-	for _, chirp := range chirps {
-		chirpsArr = append(chirpsArr, Chirp{
-			ID:        chirp.ID,
-			CreatedAt: chirp.CreatedAt,
-			UpdatedAt: chirp.UpdatedAt,
-			Body:      chirp.Body,
-			UserID:    chirp.UserID,
-		})
-	}
-
-	respondWithJSON(w, http.StatusOK, chirpsArr)
-}
-
-func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request) {
-	type parameters struct {
-		Body   string        `json:"body"`
-		UserID uuid.NullUUID `json:"user_id"`
-	}
-
-	decoder := json.NewDecoder(r.Body)
-	params := parameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
-	}
-
-	const maxChirpLength = 140
-
-	if len(params.Body) >= maxChirpLength {
-		respondWithError(w, http.StatusBadRequest, "Chirp is too long", nil)
-		return
-	}
-
-	cleanParams := database.CreateChirpParams{
-		Body:   profanityFilter(params.Body),
-		UserID: params.UserID,
-	}
-
-	chirp, err := cfg.db.CreateChirp(r.Context(), cleanParams)
-
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error creating chirp in database", err)
-		return
-	}
-
-	respondWithJSON(w, http.StatusCreated, Chirp{
-		ID:        chirp.ID,
-		CreatedAt: chirp.CreatedAt,
-		UpdatedAt: chirp.UpdatedAt,
-		Body:      chirp.Body,
-		UserID:    chirp.UserID,
-	},
-	)
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -147,73 +56,6 @@ func (cfg *apiConfig) writeRequests(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "text/plain;charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(template))
-
-}
-
-func (cfg *apiConfig) handlerReset(w http.ResponseWriter, r *http.Request) {
-	if cfg.platform != "dev" {
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("Reset is only allowed in dev environment."))
-		return
-	}
-	cfg.fileserverHits.Store(0)
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Hits reset to 0"))
-}
-
-func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
-	type parameters struct {
-		Email string `json:"email"`
-	}
-	type response struct {
-		User
-	}
-
-	decoder := json.NewDecoder(r.Body)
-	params := parameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "issue decoding params", err)
-		return
-	}
-
-	if params.Email == "" {
-		respondWithError(w, http.StatusBadRequest, "no email given", nil)
-		return
-	}
-
-	user, err := cfg.db.CreateUser(r.Context(), params.Email)
-
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "error creating user", err)
-		return
-	}
-
-	respondWithJSON(w, http.StatusCreated, response{
-		User: User{
-			ID:        user.ID,
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
-			Email:     user.Email,
-		},
-	})
-}
-
-func profanityFilter(t string) string {
-	profanity := []string{"kerfuffle", "sharbert", "fornax"}
-	const filter = "****"
-
-	cleanBody := []string{}
-
-	for _, word := range strings.Split(t, " ") {
-		if slices.Contains(profanity, strings.ToLower(word)) {
-			cleanBody = append(cleanBody, filter)
-		} else {
-			cleanBody = append(cleanBody, word)
-		}
-	}
-
-	return strings.Join(cleanBody, " ")
 
 }
 
@@ -261,6 +103,7 @@ func main() {
 		fileserverHits: atomic.Int32{},
 		db:             dbQueries,
 		platform:       os.Getenv("PLATFORM"),
+		jwtSecret:      os.Getenv("JWT_SECRET"),
 	}
 
 	const port = "8080"
@@ -279,8 +122,9 @@ func main() {
 	})
 
 	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
-
+	mux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
 	mux.HandleFunc("POST /api/chirps", apiCfg.handlerCreateChirp)
+
 	mux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
 
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirp)
