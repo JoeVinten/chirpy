@@ -24,11 +24,12 @@ type apiConfig struct {
 }
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 type Chirp struct {
@@ -70,7 +71,7 @@ func respondWithError(w http.ResponseWriter, code int, msg string, err error) {
 		Error string `json:"error"`
 	}
 	respondWithJSON(w, code, errorValue{
-		Error: msg,
+		Error: fmt.Sprintf("%s: %v", msg, err),
 	})
 
 }
@@ -112,9 +113,7 @@ func main() {
 	mux.Handle("/app/", http.StripPrefix("/app/", apiCfg.middlewareMetricsInc(http.FileServer(http.Dir(".")))))
 
 	mux.HandleFunc("GET /admin/metrics", apiCfg.writeRequests)
-
 	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
-
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
 		r.Header.Add("Content-Type", "text/plain;charset=utf-8")
 		w.WriteHeader(200)
@@ -124,9 +123,10 @@ func main() {
 	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
 	mux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
 	mux.HandleFunc("POST /api/chirps", apiCfg.handlerCreateChirp)
+	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefreshToken)
+	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevokeToken)
 
 	mux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
-
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirp)
 
 	s := &http.Server{

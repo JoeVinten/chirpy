@@ -3,20 +3,25 @@ package auth
 import (
 	"errors"
 	"fmt"
-	"net/http"
-	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
+type TokenType string
+
+const (
+	TokenTypeAccess TokenType = "chirpy"
+)
+
 func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
 	secretKey := []byte(tokenSecret)
 
 	claims := &jwt.RegisteredClaims{
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiresIn)),
-		Issuer:    "chirpy",
+		Issuer:    string(TokenTypeAccess),
+		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+		ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiresIn)),
 		Subject:   userID.String(),
 	}
 
@@ -30,40 +35,34 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 }
 
 func ValidateJWT(tokenString string, tokenSecret string) (uuid.UUID, error) {
-	claims := &jwt.RegisteredClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
-		return []byte(tokenSecret), nil
-	})
+	claimsStruct := jwt.RegisteredClaims{}
+	token, err := jwt.ParseWithClaims(
+		tokenString,
+		&claimsStruct,
+		func(token *jwt.Token) (interface{}, error) { return []byte(tokenSecret), nil },
+	)
 
 	if err != nil {
-		return uuid.UUID{}, err
+		return uuid.Nil, err
 	}
 
-	if !token.Valid {
-		return uuid.UUID{}, fmt.Errorf("invalid token")
+	userIDString, err := token.Claims.GetSubject()
+	if err != nil {
+		return uuid.Nil, err
 	}
 
-	uID, err := uuid.Parse(claims.Subject)
+	issuer, err := token.Claims.GetIssuer()
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if issuer != string(TokenTypeAccess) {
+		return uuid.Nil, errors.New("invalid issuer")
+	}
+
+	id, err := uuid.Parse(userIDString)
 
 	if err != nil {
-		return uuid.UUID{}, err
+		return uuid.Nil, fmt.Errorf("invalid user ID: %w", err)
 	}
-
-	return uID, nil
-}
-
-func GetBearerToken(headers http.Header) (string, error) {
-	authH := headers.Get("Authorization")
-
-	if authH == "" {
-		return "", errors.New("authorization header missing")
-	}
-
-	parts := strings.Fields(authH)
-
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		return "", errors.New("malformed authorization header")
-	}
-
-	return strings.TrimSpace(parts[1]), nil
+	return id, nil
 }

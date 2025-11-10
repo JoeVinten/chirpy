@@ -8,13 +8,19 @@ import (
 	"time"
 
 	"github.com/JoeVinten/chirpy/internal/auth"
+	"github.com/JoeVinten/chirpy/internal/database"
 )
 
 func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Password         string `json:"password"`
-		Email            string `json:"email"`
-		ExpiresInSeconds *int   `json:"expires_in_seconds"`
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+
+	type response struct {
+		User
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -49,34 +55,36 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const defaultExpiryInSeconds = 3600
-
-	expSecs := defaultExpiryInSeconds
-	if params.ExpiresInSeconds != nil {
-		if *params.ExpiresInSeconds <= 0 {
-			expSecs = defaultExpiryInSeconds
-		} else if *params.ExpiresInSeconds > defaultExpiryInSeconds {
-			expSecs = defaultExpiryInSeconds
-		} else {
-			expSecs = *params.ExpiresInSeconds
-		}
-	}
-
-	expires := time.Duration(expSecs) * time.Second
-
-	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, expires)
+	accessToken, err := auth.MakeJWT(user.ID, cfg.jwtSecret, time.Hour)
 
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to create JWT", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create access JWT", err)
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
-		Token:     token,
+	refreshToken := auth.MakeRefreshToken()
+
+	_, err = cfg.db.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
+		Token:     refreshToken,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(time.Hour * 24 * 60),
+	})
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't save refresh token", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, response{
+		User: User{
+			ID:        user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email:     user.Email,
+		},
+
+		Token:        accessToken,
+		RefreshToken: refreshToken,
 	})
 
 }
