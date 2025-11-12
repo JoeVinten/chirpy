@@ -48,7 +48,7 @@ Through building Chirpy, I'm gaining hands-on experience with:
 - **sqlc** - Type-safe SQL query generation
 - **Goose** - Database migrations
 - **JWT** - Authentication tokens
-- **bcrypt** - Password hashing
+- **argon2id** - Password hashing
 
 ## Project Structure
 ```
@@ -56,7 +56,7 @@ Through building Chirpy, I'm gaining hands-on experience with:
 ├── main.go                 # Server setup and routing
 ├── handler_*.go           # HTTP handlers for each endpoint
 ├── internal/
-│   ├── auth/              # Authentication utilities (JWT, bcrypt, API keys)
+│   ├── auth/              # Authentication utilities (JWT, argon2id, API keys)
 │   └── database/          # sqlc generated code
 ├── sql/
 │   ├── schema/            # Database migrations
