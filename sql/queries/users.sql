@@ -19,3 +19,8 @@ hashed_password = $2,
 updated_at = NOW()
 WHERE id=$3
 RETURNING *;
+
+-- name: UpgradeUser :exec
+UPDATE users SET is_chirpy_red = true
+WHERE id=$1
+RETURNING *;

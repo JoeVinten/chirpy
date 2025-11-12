@@ -32,7 +32,7 @@ func TestGetBearer(t *testing.T) {
 		{
 			name: "Malformed token (Bearer prefix but no token)",
 			headers: http.Header{
-				"Authorization": {"token"},
+				"Authorization": {"Bearer"},
 			},
 			wantToken: "",
 			wantErr:   true,

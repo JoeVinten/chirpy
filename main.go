@@ -21,6 +21,7 @@ type apiConfig struct {
 	db             *database.Queries
 	platform       string
 	jwtSecret      string
+	polkaKey       string
 }
 
 type User struct {
@@ -30,6 +31,7 @@ type User struct {
 	Email        string    `json:"email"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 }
 
 type Chirp struct {
@@ -105,6 +107,7 @@ func main() {
 		db:             dbQueries,
 		platform:       os.Getenv("PLATFORM"),
 		jwtSecret:      os.Getenv("JWT_SECRET"),
+		polkaKey:       os.Getenv("POLKA_KEY"),
 	}
 
 	const port = "8080"
@@ -132,6 +135,8 @@ func main() {
 	mux.HandleFunc("PUT /api/users", apiCfg.middlewareAuth(apiCfg.handlerUpdateAccount))
 
 	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.middlewareAuth(apiCfg.handlerDeleteChirp))
+
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.handlerUpgradeUser)
 
 	s := &http.Server{
 		Addr:    ":" + port,
