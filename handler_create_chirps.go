@@ -20,7 +20,7 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 	userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
 
 	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Invalid Token: ", err)
+		respondWithError(w, http.StatusUnauthorized, "", err)
 		return
 	}
 
@@ -33,6 +33,7 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 	err = decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
+		return
 	}
 
 	const maxChirpLength = 140
