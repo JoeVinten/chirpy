@@ -6,21 +6,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/JoeVinten/chirpy/internal/auth"
 	"github.com/JoeVinten/chirpy/internal/database"
 )
 
 func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request) {
-	token, err := auth.GetBearerToken(r.Header)
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "No token", err)
-		return
-	}
-
-	userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
-
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "", err)
+	userID, ok := getUserID(r.Context())
+	if !ok {
+		respondWithError(w, http.StatusUnauthorized, "User ID not found", nil)
 		return
 	}
 
@@ -30,7 +22,7 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err = decoder.Decode(&params)
+	err := decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
 		return

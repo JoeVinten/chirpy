@@ -122,16 +122,16 @@ func main() {
 
 	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
 	mux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
-	mux.HandleFunc("POST /api/chirps", apiCfg.handlerCreateChirp)
+	mux.HandleFunc("POST /api/chirps", apiCfg.middlewareAuth(apiCfg.handlerCreateChirp))
 	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefreshToken)
 	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevokeToken)
 
 	mux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirp)
 
-	mux.HandleFunc("PUT /api/users", apiCfg.handlerUpdateAccount)
+	mux.HandleFunc("PUT /api/users", apiCfg.middlewareAuth(apiCfg.handlerUpdateAccount))
 
-	mux.HandleFunc("DELETE /api/chirps/{chripID}", apiCfg.handlerDeleteChirp)
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.middlewareAuth(apiCfg.handlerDeleteChirp))
 
 	s := &http.Server{
 		Addr:    ":" + port,

@@ -14,22 +14,15 @@ func (cfg *apiConfig) handlerUpdateAccount(w http.ResponseWriter, r *http.Reques
 		Password string `json:"password"`
 	}
 
-	token, err := auth.GetBearerToken(r.Header)
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "", err)
-		return
-	}
-
-	userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
-
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "", err)
+	userID, ok := getUserID(r.Context())
+	if !ok {
+		respondWithError(w, http.StatusUnauthorized, "User ID not found", nil)
 		return
 	}
 
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err = decoder.Decode(&params)
+	err := decoder.Decode(&params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters", err)
 		return
